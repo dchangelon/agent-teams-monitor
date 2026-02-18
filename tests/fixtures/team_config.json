@@ -1,0 +1,40 @@
+{
+  "name": "test-team",
+  "description": "Test team for unit tests",
+  "createdAt": 1771096651149,
+  "leadAgentId": "team-lead@test-team",
+  "leadSessionId": "session-test-123",
+  "members": [
+    {
+      "agentId": "team-lead@test-team",
+      "name": "team-lead",
+      "agentType": "team-lead",
+      "model": "claude-opus-4-6",
+      "joinedAt": 1771096651149,
+      "tmuxPaneId": "",
+      "cwd": "c:\\Users\\test\\project",
+      "subscriptions": [],
+      "backendType": "in-process",
+      "prompt": "You are the team lead for the test team. Coordinate work between teammates.",
+      "color": null
+    },
+    {
+      "agentId": "agent-1@test-team",
+      "name": "agent-1",
+      "agentType": "general-purpose",
+      "model": "opus",
+      "joinedAt": 1771096743315,
+      "cwd": "c:\\Users\\test\\project",
+      "color": "blue"
+    },
+    {
+      "agentId": "agent-2@test-team",
+      "name": "agent-2",
+      "agentType": "general-purpose",
+      "model": "opus",
+      "joinedAt": 1771096800000,
+      "cwd": "c:\\Users\\test\\project",
+      "color": "green"
+    }
+  ]
+}

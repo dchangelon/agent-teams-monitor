@@ -1,0 +1,12 @@
+{
+  "id": "2",
+  "subject": "agent-1",
+  "description": "You are \"agent-1\" teammate on the test team. Implement the core feature module.",
+  "status": "in_progress",
+  "blocks": [],
+  "blockedBy": ["1"],
+  "owner": "agent-1",
+  "metadata": {
+    "_internal": true
+  }
+}

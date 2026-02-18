@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent Teams Monitor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/static/styles.css">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        agent: {
+                            blue: '#3b82f6',
+                            green: '#22c55e',
+                            purple: '#a855f7',
+                            orange: '#f97316',
+                            pink: '#ec4899',
+                            cyan: '#06b6d4',
+                            red: '#ef4444',
+                            yellow: '#eab308',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+    <!-- Header -->
+    <header class="bg-white border-b border-gray-200 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <h1 class="text-lg font-semibold text-gray-900">Agent Teams Monitor</h1>
+            </div>
+            <div class="flex items-center gap-4">
+                <div id="live-indicator" class="flex items-center gap-1.5 text-sm">
+                    <span class="relative flex h-2.5 w-2.5">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
+                    </span>
+                    <span class="text-green-600 font-medium">Live</span>
+                </div>
+                <button id="pause-btn"
+                    class="text-sm px-3 py-1 rounded border border-gray-300 hover:bg-gray-50 text-gray-600 transition-colors">
+                    Pause
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+
+        <!-- Overview View -->
+        <div id="overview-view">
+            <div id="teams-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- Team cards rendered by JS -->
+            </div>
+            <div id="overview-empty" class="hidden text-center py-20">
+                <div class="text-gray-400 text-5xl mb-4">&#x1f916;</div>
+                <h2 class="text-xl font-medium text-gray-600 mb-2">No active teams</h2>
+                <p class="text-gray-400">Start a team with Claude Code to see it here</p>
+            </div>
+            <div id="overview-loading" class="text-center py-20">
+                <div class="inline-block w-8 h-8 border-4 border-gray-200 border-t-blue-500 rounded-full animate-spin"></div>
+                <p class="text-gray-400 mt-3">Loading teams...</p>
+            </div>
+        </div>
+
+        <!-- Team Detail View -->
+        <div id="detail-view" class="hidden">
+
+            <!-- Back + Header -->
+            <div class="flex items-center gap-3 mb-4">
+                <button id="back-btn"
+                    class="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 transition-colors">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+                    </svg>
+                    Back
+                </button>
+                <h2 id="team-name-header" class="text-xl font-semibold text-gray-900"></h2>
+                <span id="team-description-header" class="text-sm text-gray-400 ml-2"></span>
+            </div>
+
+            <!-- Permission Alert Banner -->
+            <div id="alert-banner" class="hidden mb-4 bg-amber-50 border border-amber-200 rounded-lg overflow-hidden">
+                <button id="alert-toggle"
+                    class="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-amber-100 transition-colors">
+                    <div class="flex items-center gap-2">
+                        <svg class="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/>
+                        </svg>
+                        <span id="alert-count" class="text-sm font-medium text-amber-800"></span>
+                    </div>
+                    <svg id="alert-chevron" class="w-4 h-4 text-amber-500 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                </button>
+                <div id="alert-details" class="hidden border-t border-amber-200 px-4 py-3 space-y-3">
+                    <!-- Permission items rendered by JS -->
+                </div>
+            </div>
+
+            <!-- Completion Bar -->
+            <div id="completion-bar" class="mb-4 bg-white rounded-lg border border-gray-200 px-4 py-3">
+                <div class="flex items-center justify-between mb-1.5">
+                    <span id="completion-text" class="text-sm font-medium text-gray-700"></span>
+                    <span id="completion-pct" class="text-sm text-gray-500"></span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-2.5">
+                    <div id="completion-fill" class="h-2.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <!-- Agent Activity Cards -->
+            <div id="activity-cards" class="flex gap-3 overflow-x-auto pb-2 mb-4">
+                <!-- Agent cards rendered by JS -->
+            </div>
+
+            <!-- Sub-tabs -->
+            <div class="border-b border-gray-200 mb-4">
+                <nav class="flex gap-6" aria-label="Tabs">
+                    <button class="tab-btn text-sm font-medium pb-2 border-b-2 transition-colors"
+                        data-tab="timeline">Timeline</button>
+                    <button class="tab-btn text-sm font-medium pb-2 border-b-2 transition-colors"
+                        data-tab="tasks">Tasks</button>
+                    <button class="tab-btn text-sm font-medium pb-2 border-b-2 transition-colors"
+                        data-tab="messages">Messages</button>
+                </nav>
+            </div>
+
+            <!-- Tab Content -->
+            <div id="tab-timeline" class="tab-content">
+                <div id="swim-lanes-container">
+                    <!-- Swim lanes rendered by JS -->
+                </div>
+                <div id="timeline-empty" class="hidden text-center py-12 text-gray-400">
+                    <p>No timeline events yet</p>
+                    <p class="text-sm mt-1">Events appear as agent tasks change status</p>
+                </div>
+            </div>
+
+            <div id="tab-tasks" class="tab-content hidden">
+                <div class="bg-white rounded-lg border border-gray-200 p-3 mb-4 flex flex-col md:flex-row gap-3">
+                    <input id="tasks-search-input" type="text" placeholder="Search tasks..."
+                        class="flex-1 text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                    <select id="tasks-owner-filter"
+                        class="text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                        <option value="all">All owners</option>
+                    </select>
+                    <select id="tasks-status-filter"
+                        class="text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                        <option value="all">All statuses</option>
+                        <option value="pending">Pending</option>
+                        <option value="in_progress">In Progress</option>
+                        <option value="completed">Completed</option>
+                    </select>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                    <div class="lg:col-span-2">
+                        <div id="kanban-board" class="grid grid-cols-3 gap-3">
+                            <!-- Kanban columns rendered by JS -->
+                        </div>
+                        <div id="tasks-empty" class="hidden text-center py-12 text-gray-400">
+                            No tasks yet
+                        </div>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-medium text-gray-500 mb-3">Task Timeline</h3>
+                        <div id="task-timeline-feed" class="space-y-2">
+                            <!-- Task timeline items rendered by JS -->
+                        </div>
+                        <div id="task-timeline-empty" class="hidden text-center py-8 text-gray-400 text-sm">
+                            No state transitions yet
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="tab-messages" class="tab-content hidden">
+                <!-- Send Form -->
+                <div id="send-form" class="bg-white rounded-lg border border-gray-200 p-4 mb-4">
+                    <div class="flex gap-3">
+                        <select id="msg-agent-select"
+                            class="text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                            <option value="">Select agent...</option>
+                        </select>
+                        <input id="msg-text-input" type="text" placeholder="Type a message..."
+                            class="flex-1 text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                        <button id="msg-send-btn"
+                            class="text-sm px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            disabled>
+                            Send
+                        </button>
+                    </div>
+                </div>
+                <div class="bg-white rounded-lg border border-gray-200 p-3 mb-4 flex flex-col md:flex-row gap-3">
+                    <input id="messages-search-input" type="text" placeholder="Search messages..."
+                        class="flex-1 text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                    <select id="messages-agent-filter"
+                        class="text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                        <option value="all">All agents</option>
+                    </select>
+                    <select id="messages-type-filter"
+                        class="text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                        <option value="all">All message types</option>
+                        <option value="plain">Plain</option>
+                        <option value="permission_request">Permission Request</option>
+                        <option value="permission_response">Permission Response</option>
+                        <option value="shutdown_request">Shutdown Request</option>
+                    </select>
+                </div>
+                <!-- Message Feed -->
+                <div id="message-feed" class="space-y-2">
+                    <!-- Messages rendered by JS -->
+                </div>
+                <div id="messages-empty" class="hidden text-center py-12 text-gray-400">
+                    No messages yet
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="fixed bottom-4 right-4 z-50 space-y-2"></div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

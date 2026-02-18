@@ -1,0 +1,9 @@
+{
+  "id": "3",
+  "subject": "write-tests",
+  "description": "Write unit tests for the core module",
+  "status": "completed",
+  "blocks": [],
+  "blockedBy": [],
+  "owner": "agent-2"
+}

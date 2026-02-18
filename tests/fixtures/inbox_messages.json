@@ -1,0 +1,23 @@
+[
+  {
+    "from": "agent-1",
+    "text": "{\"type\":\"permission_request\",\"request_id\":\"perm-123-abc\",\"agent_id\":\"agent-1\",\"tool_name\":\"Bash\",\"tool_use_id\":\"toolu_01ABC\",\"description\":\"Run vitest test suite\",\"input\":{\"command\":\"npx vitest run\"},\"permission_suggestions\":[{\"type\":\"add_tool_rule\",\"tool\":\"Bash\",\"rule_type\":\"always_allow\",\"rule_pattern\":\"npx vitest*\"}]}",
+    "timestamp": "2026-02-14T19:21:59.024Z",
+    "color": "blue",
+    "read": false
+  },
+  {
+    "from": "team-lead",
+    "text": "{\"type\":\"shutdown_request\",\"reason\":\"All tasks completed\",\"requestId\":\"shutdown-456-def\"}",
+    "timestamp": "2026-02-14T20:00:00.000Z",
+    "color": null,
+    "read": false
+  },
+  {
+    "from": "team-lead",
+    "text": "Please focus on the unit tests first",
+    "timestamp": "2026-02-14T19:30:00.000Z",
+    "color": null,
+    "read": true
+  }
+]

@@ -1,0 +1,9 @@
+{
+  "id": "1",
+  "subject": "setup-config",
+  "description": "Set up project configuration files",
+  "status": "pending",
+  "blocks": ["2"],
+  "blockedBy": [],
+  "owner": "agent-1"
+}
