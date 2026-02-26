@@ -1,13 +1,17 @@
+import asyncio
+import logging
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 import re
-from typing import Optional
+from typing import Optional, Union
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import (
+    SETTINGS_PATH,
     STALL_THRESHOLD_MINUTES,
     STATIC_DIR,
     TEMPLATES_DIR,
@@ -17,6 +21,7 @@ from .config import (
 from .file_reader import TeamFileReader
 from .message_writer import ConfigWriter, InboxWriter
 from .models import (
+    ActionQueueResponse,
     ActionResponse,
     ActivityResponse,
     AgentActivityResponse,
@@ -24,7 +29,15 @@ from .models import (
     AgentTimelineEntry,
     AgentTimelineResponse,
     AlertsResponse,
+    AutoApprovalLogEntry,
+    AutoApprovalLogResponse,
+    AutoApprovalSettingsResponse,
+    BatchPermissionRequest,
+    BatchPermissionResponse,
+    GroupedMessagesResponse,
+    HealthScoreResponse,
     InboxMessageResponse,
+    MessageGroupResponse,
     MessagesResponse,
     MonitorConfigResponse,
     PermissionActionRequest,
@@ -41,7 +54,12 @@ from .models import (
     DetailSnapshotResponse,
     TimelineEventResponse,
     TimelineResponse,
+    UpdateAutoApprovalRequest,
 )
+from .services.action_queue_service import build_action_queue
+from .services.auto_approval_service import AutoApprovalService
+from .services.health_score_service import compute_health_score
+from .services.settings_service import SettingsService
 from .timeline import TimelineTracker
 
 IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -114,6 +132,54 @@ def extract_pending_permissions(messages) -> list[PermissionAlertResponse]:
                 timestamp=msg.timestamp,
             ))
     return permissions
+
+
+def _filter_unresolved_messages(messages) -> list:
+    """Return only unresolved permission_request and shutdown_request messages.
+
+    A permission is resolved if a permission_response with the same request_id
+    exists. A shutdown is resolved if a shutdown_response with the same
+    requestId/request_id exists.
+    """
+    # Pass 1: collect resolved permission IDs
+    resolved_perm_ids: set[str] = set()
+    for msg in messages:
+        if msg.message_type == "permission_response" and msg.parsed_content:
+            rid = msg.parsed_content.get("request_id", "")
+            if rid:
+                resolved_perm_ids.add(rid)
+
+    # Pass 1b: collect resolved shutdown IDs
+    resolved_shutdown_ids: set[str] = set()
+    for msg in messages:
+        if msg.message_type == "shutdown_response" and msg.parsed_content:
+            rid = (
+                msg.parsed_content.get("requestId", "")
+                or msg.parsed_content.get("request_id", "")
+            )
+            if rid:
+                resolved_shutdown_ids.add(rid)
+
+    # Pass 2: return unresolved items only
+    filtered = []
+    for msg in messages:
+        if msg.message_type == "permission_request" and msg.parsed_content:
+            rid = msg.parsed_content.get("request_id", "")
+            if rid not in resolved_perm_ids:
+                filtered.append(msg)
+        elif msg.message_type == "shutdown_request" and msg.parsed_content:
+            rid = (
+                msg.parsed_content.get("requestId", "")
+                or msg.parsed_content.get("request_id", "")
+            )
+            if not rid or rid not in resolved_shutdown_ids:
+                filtered.append(msg)
+    return filtered
+
+
+def _canonicalize_pair(agent_a: str, agent_b: str) -> tuple:
+    """Return a canonical (alphabetically sorted) agent pair."""
+    return tuple(sorted([agent_a, agent_b]))
 
 
 def _validate_identifier(identifier: str, field_name: str) -> str:
@@ -333,17 +399,51 @@ def create_app(
     teams_dir: Optional[Path] = None,
     tasks_dir: Optional[Path] = None,
     write_api_key: Optional[str] = None,
+    settings_path: Optional[Path] = None,
 ) -> FastAPI:
     """Create and configure the FastAPI application.
 
     Accepts optional path overrides for testing.
     """
-    app = FastAPI(title="Agent Teams Monitor")
-
     reader = TeamFileReader(teams_base=teams_dir, tasks_base=tasks_dir)
     writer = InboxWriter(teams_base=teams_dir)
     config_writer = ConfigWriter(teams_base=teams_dir)
     tracker = TimelineTracker(max_events=TIMELINE_MAX_EVENTS)
+    settings_service = SettingsService(
+        settings_path=settings_path or SETTINGS_PATH
+    )
+    auto_approval = AutoApprovalService(
+        settings_service=settings_service,
+        writer=writer,
+    )
+
+    _logger = logging.getLogger(__name__)
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        """Start background auto-approval loop on startup, cancel on shutdown."""
+        async def _auto_approval_loop():
+            while True:
+                try:
+                    settings = settings_service.get()
+                    if settings.auto_approve_enabled:
+                        team_names = reader.list_teams()
+                        for team_name in team_names:
+                            all_messages = reader.get_all_messages(team_name)
+                            pending = extract_pending_permissions(all_messages)
+                            if pending:
+                                auto_approval.process_permissions(
+                                    team_name, pending
+                                )
+                except Exception:
+                    _logger.exception("Auto-approval loop error")
+                await asyncio.sleep(3)
+
+        task = asyncio.create_task(_auto_approval_loop())
+        yield
+        task.cancel()
+
+    app = FastAPI(title="Agent Teams Monitor", lifespan=lifespan)
     effective_write_api_key = (
         write_api_key if write_api_key is not None else WRITE_API_KEY
     )
@@ -372,18 +472,43 @@ def create_app(
         team_names = reader.list_teams()
         summaries = []
         for name in team_names:
-            summary = reader.get_team_summary(name)
-            if summary is None:
-                continue  # Skip teams with no config
+            config = reader.get_team_config(name)
+            if config is None:
+                continue
+
+            tasks = reader.get_tasks(name)
+            all_messages = reader.get_all_messages(name)
+            has_unread = any(not m.read for m in all_messages)
+
+            task_counts = {"pending": 0, "in_progress": 0, "completed": 0}
+            for t in tasks:
+                if t.status in task_counts:
+                    task_counts[t.status] += 1
+
+            tracker.poll(name, tasks)
+            activity = compute_agent_activity(
+                name, reader, tracker,
+                config=config, tasks=tasks, all_messages=all_messages,
+            )
+            pending_permissions = extract_pending_permissions(all_messages)
+            health = compute_health_score(
+                pending_permissions=pending_permissions,
+                activity=activity,
+                tasks=tasks,
+                counts=task_counts,
+            )
+
             summaries.append(TeamSummaryResponse(
-                name=summary.name,
-                description=summary.description,
-                created_at=summary.created_at,
-                member_count=summary.member_count,
-                task_counts=summary.task_counts,
-                total_tasks=summary.total_tasks,
-                has_unread_messages=summary.has_unread_messages,
-                members=[_member_to_response(m) for m in summary.members],
+                name=config.name,
+                description=config.description,
+                created_at=config.created_at,
+                member_count=len(config.members),
+                task_counts=task_counts,
+                total_tasks=len(tasks),
+                has_unread_messages=has_unread,
+                members=[_member_to_response(m) for m in config.members],
+                health_score=health.overall,
+                health_color=health.color,
             ))
         return TeamsListResponse(teams=summaries)
 
@@ -434,10 +559,41 @@ def create_app(
             counts=TaskCountsResponse(**counts, total=total),
         )
 
-    @app.get("/api/teams/{name}/messages", response_model=MessagesResponse)
-    def get_messages(name: str):
+    @app.get(
+        "/api/teams/{name}/messages",
+        response_model=Union[GroupedMessagesResponse, MessagesResponse],
+    )
+    def get_messages(
+        name: str,
+        unresolved: bool = Query(default=False),
+        group_by: Optional[str] = Query(default=None, alias="group_by"),
+    ):
         _validate_identifier(name, "team name")
         messages = reader.get_all_messages(name)
+
+        # Server-side unresolved filter
+        if unresolved:
+            messages = _filter_unresolved_messages(messages)
+
+        # Server-side pair grouping
+        if group_by == "pair":
+            groups: dict[tuple, list] = {}
+            for msg in messages:
+                from_agent = msg.from_agent or "unknown"
+                target_agent = msg.target_agent or "unknown"
+                pair_key = _canonicalize_pair(from_agent, target_agent)
+                groups.setdefault(pair_key, []).append(msg)
+
+            group_responses = []
+            for pair_key in sorted(groups):
+                group_msgs = groups[pair_key]
+                group_responses.append(MessageGroupResponse(
+                    pair=list(pair_key),
+                    messages=[_message_to_response(m) for m in group_msgs],
+                    message_count=len(group_msgs),
+                ))
+            return GroupedMessagesResponse(groups=group_responses)
+
         return MessagesResponse(
             messages=[_message_to_response(m) for m in messages],
         )
@@ -476,6 +632,58 @@ def create_app(
         if result is None:
             raise HTTPException(status_code=404, detail="Team not found")
         return result
+
+    @app.get("/api/teams/{name}/action-queue", response_model=ActionQueueResponse)
+    def get_action_queue(name: str):
+        """Prioritised list of items needing operator attention."""
+        _validate_identifier(name, "team name")
+        config = reader.get_team_config(name)
+        if config is None:
+            raise HTTPException(status_code=404, detail="Team not found")
+        tasks = reader.get_tasks(name)
+        tracker.poll(name, tasks)
+        all_messages = reader.get_all_messages(name)
+        activity = compute_agent_activity(
+            name, reader, tracker,
+            config=config, tasks=tasks, all_messages=all_messages,
+        )
+        pending_permissions = extract_pending_permissions(all_messages)
+        items = build_action_queue(
+            pending_permissions=pending_permissions,
+            activity=activity,
+            tasks=tasks,
+            stall_threshold_seconds=STALL_THRESHOLD_MINUTES * 60,
+        )
+        return ActionQueueResponse(items=items, total=len(items))
+
+    @app.get("/api/teams/{name}/health", response_model=HealthScoreResponse)
+    def get_health(name: str):
+        """Compute workflow health score for a team."""
+        _validate_identifier(name, "team name")
+        config = reader.get_team_config(name)
+        if config is None:
+            raise HTTPException(status_code=404, detail="Team not found")
+        tasks = reader.get_tasks(name)
+        tracker.poll(name, tasks)
+        all_messages = reader.get_all_messages(name)
+        activity = compute_agent_activity(
+            name, reader, tracker,
+            config=config, tasks=tasks, all_messages=all_messages,
+        )
+        pending_permissions = extract_pending_permissions(all_messages)
+
+        counts = {"pending": 0, "in_progress": 0, "completed": 0}
+        for task in tasks:
+            if task.status in counts:
+                counts[task.status] += 1
+
+        health = compute_health_score(
+            pending_permissions=pending_permissions,
+            activity=activity,
+            tasks=tasks,
+            counts=counts,
+        )
+        return HealthScoreResponse(health=health)
 
     @app.get("/api/teams/{name}/alerts", response_model=AlertsResponse)
     def get_alerts(name: str):
@@ -521,6 +729,25 @@ def create_app(
                 counts[task.status] += 1
         total = counts["pending"] + counts["in_progress"] + counts["completed"]
 
+        action_queue = build_action_queue(
+            pending_permissions=pending_permissions,
+            activity=activity,
+            tasks=tasks,
+            stall_threshold_seconds=STALL_THRESHOLD_MINUTES * 60,
+        )
+
+        health = compute_health_score(
+            pending_permissions=pending_permissions,
+            activity=activity,
+            tasks=tasks,
+            counts=counts,
+        )
+
+        current_settings = settings_service.get()
+        recent_approvals = auto_approval.get_recent(
+            max_age_seconds=300, limit=10
+        )
+
         return DetailSnapshotResponse(
             team=TeamConfigResponse(
                 name=config.name,
@@ -536,7 +763,42 @@ def create_app(
             monitor_config=MonitorConfigResponse(
                 stall_threshold_minutes=STALL_THRESHOLD_MINUTES,
             ),
+            action_queue=action_queue,
+            health_score=health.overall,
+            health_color=health.color,
+            health=health,
+            auto_approve_enabled=current_settings.auto_approve_enabled,
+            recent_auto_approvals=recent_approvals,
         )
+
+    # ── Settings endpoints ────────────────────────────────────────────────
+
+    @app.get("/api/settings", response_model=AutoApprovalSettingsResponse)
+    def get_settings():
+        """Return current auto-approval settings."""
+        s = settings_service.get()
+        return AutoApprovalSettingsResponse(
+            auto_approve_enabled=s.auto_approve_enabled,
+            auto_approve_tools=s.auto_approve_tools,
+        )
+
+    @app.put("/api/settings", response_model=AutoApprovalSettingsResponse)
+    def update_settings(body: UpdateAutoApprovalRequest):
+        """Update auto-approval settings."""
+        s = settings_service.update(
+            auto_approve_enabled=body.auto_approve_enabled,
+            auto_approve_tools=body.auto_approve_tools,
+        )
+        return AutoApprovalSettingsResponse(
+            auto_approve_enabled=s.auto_approve_enabled,
+            auto_approve_tools=s.auto_approve_tools,
+        )
+
+    @app.get("/api/auto-approvals", response_model=AutoApprovalLogResponse)
+    def get_auto_approvals(limit: int = Query(default=50)):
+        """Return recent auto-approval log entries."""
+        entries = auto_approval.get_log(limit=limit)
+        return AutoApprovalLogResponse(entries=entries)
 
     # ── Write endpoints ──────────────────────────────────────────────────
 
@@ -588,6 +850,52 @@ def create_app(
         if not success:
             raise HTTPException(status_code=500, detail="Failed to write denial")
         return ActionResponse(message="Permission denied")
+
+    @app.post("/api/teams/{name}/permissions/batch", response_model=BatchPermissionResponse)
+    def batch_permissions(
+        name: str,
+        body: BatchPermissionRequest,
+        x_api_key: Optional[str] = Header(default=None, alias="X-API-Key"),
+    ):
+        _validate_identifier(name, "team name")
+        require_write_access(x_api_key)
+
+        if not body.actions:
+            return BatchPermissionResponse(
+                total=0, succeeded=0, failed=0,
+                message="No actions provided",
+            )
+
+        # Validate all actions before processing any
+        for action in body.actions:
+            _validate_identifier(action.agent_name, "agent name")
+            if action.action not in ("approve", "deny"):
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Invalid action '{action.action}'; must be 'approve' or 'deny'",
+                )
+
+        succeeded = 0
+        failed = 0
+        for action in body.actions:
+            approved = action.action == "approve"
+            ok = writer.send_permission_response(
+                name, action.agent_name,
+                action.request_id, action.tool_use_id,
+                approved=approved,
+            )
+            if ok:
+                succeeded += 1
+            else:
+                failed += 1
+
+        total = succeeded + failed
+        return BatchPermissionResponse(
+            total=total,
+            succeeded=succeeded,
+            failed=failed,
+            message=f"{succeeded} of {total} permission actions completed",
+        )
 
     @app.post("/api/teams/{name}/members/{agent}/remove", response_model=ActionResponse)
     def remove_member(

@@ -87,5 +87,6 @@ def client(sample_teams_dir):
     app = create_app(
         teams_dir=sample_teams_dir / "teams",
         tasks_dir=sample_teams_dir / "tasks",
+        settings_path=sample_teams_dir / "settings.json",
     )
     return TestClient(app)

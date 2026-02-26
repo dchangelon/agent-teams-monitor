@@ -144,23 +144,46 @@
     white-space: nowrap;
 }
 
-/* Kanban */
-.kanban-column {
-    min-height: 120px;
+/* Compact Task List */
+.compact-task-row:hover {
+    background: #f9fafb;
 }
 
-.kanban-card {
-    transition: box-shadow 0.15s ease;
+/* Agent Sidebar */
+#agent-list {
+    max-height: 30vh;
+    overflow-y: auto;
 }
 
-.kanban-card:hover {
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+@media (min-width: 1024px) {
+    #agent-list {
+        max-height: 40vh;
+    }
+}
+
+#agent-list::-webkit-scrollbar {
+    width: 4px;
+}
+
+#agent-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+#agent-list::-webkit-scrollbar-thumb {
+    background: #d1d5db;
+    border-radius: 2px;
 }
 
 /* Message feed scrolling */
 #message-feed {
-    max-height: 600px;
+    max-height: 50vh;
     overflow-y: auto;
+}
+
+@media (min-width: 1024px) {
+    #message-feed {
+        max-height: 70vh;
+    }
 }
 
 #message-feed::-webkit-scrollbar {
@@ -190,16 +213,49 @@
     to { opacity: 1; }
 }
 
-/* Activity cards scroll */
-#activity-cards::-webkit-scrollbar {
-    height: 4px;
+/* Markdown typography for content messages */
+.msg-markdown h1 { font-size: 1.25rem; font-weight: 700; margin: 0.5em 0 0.25em; }
+.msg-markdown h2 { font-size: 1.1rem; font-weight: 600; margin: 0.5em 0 0.25em; }
+.msg-markdown h3 { font-size: 1rem; font-weight: 600; margin: 0.4em 0 0.2em; }
+.msg-markdown p { margin: 0.25em 0; }
+.msg-markdown ul, .msg-markdown ol { margin: 0.25em 0; padding-left: 1.5em; }
+.msg-markdown li { margin: 0.1em 0; }
+.msg-markdown code {
+    background: #f3f4f6;
+    padding: 0.1em 0.35em;
+    border-radius: 3px;
+    font-size: 0.85em;
+    color: #d946ef;
 }
-
-#activity-cards::-webkit-scrollbar-track {
+.msg-markdown pre {
+    background: #1f2937;
+    color: #e5e7eb;
+    padding: 0.75em 1em;
+    border-radius: 6px;
+    overflow-x: auto;
+    margin: 0.5em 0;
+    font-size: 0.85em;
+    line-height: 1.5;
+}
+.msg-markdown pre code {
     background: transparent;
+    color: inherit;
+    padding: 0;
 }
+.msg-markdown a { color: #3b82f6; text-decoration: underline; }
+.msg-markdown strong { font-weight: 600; }
+.msg-markdown blockquote {
+    border-left: 3px solid #d1d5db;
+    padding-left: 0.75em;
+    color: #6b7280;
+    margin: 0.5em 0;
+}
+.msg-markdown hr {
+    border: none;
+    border-top: 1px solid #e5e7eb;
+    margin: 0.75em 0;
+}
+.msg-markdown table { border-collapse: collapse; width: 100%; font-size: 0.85em; margin: 0.5em 0; }
+.msg-markdown th, .msg-markdown td { border: 1px solid #e5e7eb; padding: 0.35em 0.6em; text-align: left; }
+.msg-markdown th { background: #f9fafb; font-weight: 600; }
 
-#activity-cards::-webkit-scrollbar-thumb {
-    background: #d1d5db;
-    border-radius: 2px;
-}

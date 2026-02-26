@@ -15,6 +15,7 @@ DEFAULT_SENDER_NAME = os.getenv("SENDER_NAME", "user")
 STALL_THRESHOLD_MINUTES = int(os.getenv("STALL_THRESHOLD_MINUTES", 10))
 TIMELINE_MAX_EVENTS = int(os.getenv("TIMELINE_MAX_EVENTS", 10000))
 WRITE_API_KEY = os.getenv("WRITE_API_KEY", "").strip()
+SETTINGS_PATH = CLAUDE_HOME / "agent-monitor-settings.json"
 
 BASE_DIR = Path(__file__).parent.parent
 TEMPLATES_DIR = BASE_DIR / "templates"

@@ -82,6 +82,17 @@ class PermissionActionRequest(BaseModel):
     tool_use_id: str
 
 
+class BatchPermissionAction(BaseModel):
+    agent_name: str
+    request_id: str
+    tool_use_id: str
+    action: str  # "approve" | "deny"
+
+
+class BatchPermissionRequest(BaseModel):
+    actions: list[BatchPermissionAction]
+
+
 # --- Response models ---
 
 class TeamMemberResponse(BaseModel):
@@ -135,6 +146,8 @@ class TeamSummaryResponse(BaseModel):
     total_tasks: int
     has_unread_messages: bool
     members: list[TeamMemberResponse]
+    health_score: Optional[int] = None
+    health_color: Optional[str] = None
 
 
 class TaskCountsResponse(BaseModel):
@@ -167,9 +180,30 @@ class MessagesResponse(BaseModel):
     messages: list[InboxMessageResponse]
 
 
+class MessageGroupResponse(BaseModel):
+    """A group of messages between a specific agent pair."""
+    pair: list[str]
+    messages: list[InboxMessageResponse]
+    message_count: int
+
+
+class GroupedMessagesResponse(BaseModel):
+    """Messages grouped by conversation pairs."""
+    success: bool = True
+    groups: list[MessageGroupResponse]
+
+
 class ActionResponse(BaseModel):
     success: bool = True
     message: str = ""
+
+
+class BatchPermissionResponse(BaseModel):
+    success: bool = True
+    total: int
+    succeeded: int
+    failed: int
+    message: str
 
 
 class ErrorResponse(BaseModel):
@@ -231,6 +265,51 @@ class AlertsResponse(BaseModel):
     stalled_agents: list[str]
 
 
+# --- Action Queue models ---
+
+class ActionQueueItemResponse(BaseModel):
+    id: str
+    category: str  # "permission" | "blocked_task" | "stalled_agent"
+    priority: str  # "critical" | "high" | "normal"
+    title: str
+    detail: str
+    agent_name: Optional[str] = None
+    agent_color: Optional[str] = None
+    target_link: Optional[str] = None
+    created_at: Optional[str] = None
+    duration_seconds: Optional[int] = None
+    permission_data: Optional[dict] = None
+    risk_level: Optional[str] = None  # "low" | "medium" | None
+
+
+class ActionQueueResponse(BaseModel):
+    success: bool = True
+    items: list[ActionQueueItemResponse]
+    total: int = 0
+
+
+# --- Health Score models ---
+
+
+class DimensionScoreResponse(BaseModel):
+    name: str       # "permission_latency" | "stall_ratio" | "blocked_ratio" | "throughput"
+    score: int      # 0-100
+    weight: float   # 0.20-0.30
+    explanation: str
+
+
+class HealthScoreBreakdown(BaseModel):
+    overall: int    # 0-100
+    color: str      # "green" | "amber" | "red"
+    label: str      # "Healthy" | "Needs Attention" | "Critical"
+    dimensions: list[DimensionScoreResponse]
+
+
+class HealthScoreResponse(BaseModel):
+    success: bool = True
+    health: HealthScoreBreakdown
+
+
 # --- Consolidated detail snapshot model ---
 
 class MonitorConfigResponse(BaseModel):
@@ -245,6 +324,12 @@ class DetailSnapshotResponse(BaseModel):
     stalled_agents: list[str]
     activity: list[AgentActivityResponse]
     monitor_config: MonitorConfigResponse
+    action_queue: list[ActionQueueItemResponse] = []
+    health_score: Optional[int] = None
+    health_color: Optional[str] = None
+    health: Optional[HealthScoreBreakdown] = None
+    auto_approve_enabled: bool = True
+    recent_auto_approvals: list["AutoApprovalLogEntry"] = []
 
 
 # --- Agent Swim Lane Timeline models ---
@@ -270,3 +355,31 @@ class AgentTimelineResponse(BaseModel):
     team_name: str
     created_at: str
     agents: list[AgentTimelineEntry]
+
+
+# --- Auto-Approval models ---
+
+
+class UpdateAutoApprovalRequest(BaseModel):
+    auto_approve_enabled: Optional[bool] = None
+    auto_approve_tools: Optional[list[str]] = None
+
+
+class AutoApprovalSettingsResponse(BaseModel):
+    success: bool = True
+    auto_approve_enabled: bool
+    auto_approve_tools: list[str]
+
+
+class AutoApprovalLogEntry(BaseModel):
+    request_id: str
+    agent_name: str
+    tool_name: str
+    tool_use_id: str
+    team_name: str
+    timestamp: str
+
+
+class AutoApprovalLogResponse(BaseModel):
+    success: bool = True
+    entries: list[AutoApprovalLogEntry]
